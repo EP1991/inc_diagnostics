@@ -17,7 +17,7 @@ use opensovd_models::data::DataCategory;
 use opensovd_providers::data::{Constant, DataProviderBuilder};
 use opensovd_server::{Server, Topology};
 use tokio::net::TcpListener;
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
 async fn demo_topology() -> Topology {
     let provider = DataProviderBuilder::new()
@@ -57,16 +57,11 @@ async fn client_lists_demo_component() {
     let url = format!("http://127.0.0.1:{port}/sovd/v1");
     let mut last_error = None;
     for _ in 0..40 {
-        match Client::connect(&url)
-            .expect("client")
-            .list_components()
-            .send()
-            .await
-        {
+        match Client::connect(&url).expect("client").list_components().send().await {
             Ok(response) => {
                 assert!(response.data.items.iter().any(|c| c.id == "score-demo"));
                 return;
-            }
+            },
             Err(error) => last_error = Some(error),
         }
         sleep(Duration::from_millis(25)).await;

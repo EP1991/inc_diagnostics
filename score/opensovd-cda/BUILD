@@ -11,21 +11,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
-load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_test")
 
-rust_binary(
-    name = "opensovd-cda",
-    srcs = ["src/main.rs"],
-    data = [
-        "opensovd-cda.sample.toml",
-        "mdd/functional_groups.mdd",
-        "mdd/functional_groups.mdd.license",
-    ],
-    edition = "2021",
-    deps = [
-        "@classic-diagnostic-adapter//cda-main:opensovd_cda_lib",
-        "@score_crate_index//:tokio",
-    ],
+genrule(
+    name = "cda_binary",
+    srcs = ["@classic-diagnostic-adapter//:opensovd-cda"],
+    outs = ["opensovd-cda"],
+    cmd = "cp $(location @classic-diagnostic-adapter//:opensovd-cda) $@ && chmod +x $@",
     visibility = ["//visibility:public"],
 )
 
@@ -33,13 +25,13 @@ rust_test(
     name = "integration_test",
     srcs = ["tests/integration.rs"],
     data = [
-        ":opensovd-cda",
-        "opensovd-cda.sample.toml",
         "mdd/functional_groups.mdd",
         "mdd/functional_groups.mdd.license",
+        "opensovd-cda.sample.toml",
+        ":cda_binary",
     ],
     deps = [
         "@opensovd_core//:opensovd-client",
-        "@score_crate_index//:tokio",
+        "@opensovd_core//:tokio",
     ],
 )
