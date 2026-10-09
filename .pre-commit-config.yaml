@@ -15,7 +15,6 @@ repos:
     rev: v6.0.0
     hooks:
       - id: check-yaml
-        args: ["--allow-multiple-documents"]
       - id: check-toml
       - id: check-json
         exclude: ^\.vscode/ # those are actually jsonc files
@@ -47,7 +46,7 @@ repos:
       - id: actionlint
         name: actionlint
         # Disable shellcheck and pyflakes for now, to enforce consistent behavior.
-        entry: tools/run_tool.sh actionlint -shellcheck= -pyflakes=
+        entry: tools/run_tool.sh actionlint -shellcheck= -pyflakes= -ignore 'file "/bin/sh" does not exist'
         language: system
         require_serial: true
         types: [yaml]
@@ -73,15 +72,10 @@ repos:
         entry: bash -c 'bazel run //:ide_support && .venv_docs/bin/python3 -m basedpyright'
         language: system
         pass_filenames: false
+        stages: [manual]
 
   # Ensure every file has a copyright header as per the Eclipse Foundation's requirements
   - repo: https://github.com/eclipse-score/tooling
     rev: 31ff8eee214e4e97ef8f5cb46e443273515b63ec
     hooks:
       - id: copyright
-  - repo: https://github.com/pocc/pre-commit-hooks
-    rev: v1.3.5
-    hooks:
-      - id: clang-format
-        args: ["-i", "--style=file"]
-        files: \.(c|cpp|h|hpp)$

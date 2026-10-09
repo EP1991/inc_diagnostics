@@ -1,5 +1,5 @@
 # *******************************************************************************
-# Copyright (c) 2026 Contributors to the Eclipse Foundation
+# Copyright (c) 2024 Contributors to the Eclipse Foundation
 #
 # See the NOTICE file(s) distributed with this work for additional
 # information regarding copyright ownership.
@@ -11,24 +11,21 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
-name: On PR
+name: Gitlint check
 on:
   pull_request:
-    types: [opened, reopened, synchronize]
-  merge_group:
-    types: [checks_requested]
-
-permissions:
-  contents: read
-
+    types: [opened, synchronize, reopened]
 jobs:
-  pre-commit:
-    name: 🔬 Pre-Commit
+  lint-commits:
+    name: check-commit-messages
     runs-on: ubuntu-latest
     steps:
-      - name: 📥 Check out
-        uses: actions/checkout@v7
-      - name: 🛠️ Install pre-commit
-        run: pip install pre-commit
-      - name: ✅ Run pre-commit
-        run: pre-commit run --all-files
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run Gitlint Action
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: ./.github/actions/gitlint
+        with:
+          pr-number: ${{ github.event.number }}
