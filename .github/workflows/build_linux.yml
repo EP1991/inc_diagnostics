@@ -29,7 +29,7 @@ on:
 
 jobs:
   linux-build:
-    name: Build with bl-x86_64-linux
+    name: Build & test on host for target platform x86_64-linux
     runs-on: ubuntu-24.04
 
     steps:
@@ -42,17 +42,41 @@ jobs:
           unique-cache-name: ${{ github.workflow }}-${{ github.job }}
 
       - name: Bazel Build
-        env:
-          CARGO_BAZEL_REPIN: "true"
         run: |
-          TARGETS=(//examples/... //src/... //tests/...)
+          TARGETS=(//examples/... //tests/... //score/mw/...)
 
-          # During migration to baselibs-like layout, include score targets only
-          # when score/ actually contains Bazel packages.
-          if find score -type f \( -name BUILD -o -name BUILD.bazel \) | grep -q .; then
-            # Temporary: opensovd-cda currently fails in upstream CDA mbedtls
-            # foreign_cc wiring (missing ed25519_extract.h include path).
-            TARGETS+=(//score/... -//score/opensovd-cda/...)
+          bazel build --config=score_diag_x86_64_linux -- "${TARGETS[@]}"
+
+      - name: Bazel Test
+        run: |
+          TARGETS=(//examples/... //tests/... //score/mw/...)
+
+          bazel test --config=score_diag_x86_64_linux -- "${TARGETS[@]}"
+
+      - name: Install QM native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            liblzma-dev \
+            libssl-dev \
+            pkg-config
+
+      - name: Bazel Build QM diagnostics
+        run: |
+          bazel build --config=score_diag_x86_64_linux_qm -- \
+            //score/opensovd-cda \
+            //score/opensovd-gateway
+
+      - name: Bazel Test QM diagnostics
+        run: |
+          TEST_TARGETS=()
+          while IFS= read -r target; do
+            TEST_TARGETS+=("${target}")
+          done < <(bazel query \
+            'kind(".*_test rule", //score/opensovd-cda/... + //score/opensovd-gateway/...)')
+
+          if ((${#TEST_TARGETS[@]} == 0)); then
+            echo "No QM diagnostic test targets found; build verification is covered above."
+          else
+            bazel test --config=score_diag_x86_64_linux_qm -- "${TEST_TARGETS[@]}"
           fi
-
-          bazel build --config=bl-x86_64-linux --features=-warnings_as_errors -- "${TARGETS[@]}"
