@@ -13,8 +13,7 @@
 
 use opensovd_client::Client;
 use std::{
-    env,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::Duration,
@@ -77,7 +76,7 @@ async fn cda_serves_version_and_components() {
             .arg("--config")
             .arg(&config)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::inherit())
             .spawn()
             .expect("spawn CDA"),
     );
@@ -85,15 +84,13 @@ async fn cda_serves_version_and_components() {
     let mut last_error = None;
     for _ in 0..120 {
         match Client::connect(&url) {
-            Ok(client) => {
-                match client.list_components().send().await {
-                    Ok(components) => {
-                        assert!(components.data.items.is_empty());
-                        return;
-                    }
-                    Err(error) => last_error = Some(error.to_string()),
-                }
-            }
+            Ok(client) => match client.list_components().send().await {
+                Ok(components) => {
+                    assert!(components.data.items.is_empty());
+                    return;
+                },
+                Err(error) => last_error = Some(error.to_string()),
+            },
             Err(error) => last_error = Some(error.to_string()),
         }
         tokio::time::sleep(Duration::from_millis(250)).await;

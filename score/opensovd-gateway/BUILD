@@ -17,12 +17,12 @@ rust_binary(
     name = "opensovd-gateway",
     srcs = ["src/main.rs"],
     edition = "2021",
+    visibility = ["//visibility:public"],
     deps = [
         "@opensovd_core//:opensovd-core",
         "@opensovd_core//:opensovd-models",
         "@opensovd_core//:opensovd-providers",
         "@opensovd_core//:opensovd-server",
-        "@score_crate_index//:tokio",
+        "@opensovd_core//:tokio",
     ],
-    visibility = ["//visibility:public"],
 )

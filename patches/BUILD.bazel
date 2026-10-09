@@ -12,7 +12,9 @@
 # *******************************************************************************
 exports_files([
     "mbedtls-rs-enable-pic.patch",
+    "classic-diagnostic-adapter-linkme.patch",
     "opensovd-core-cargo-bazel-lock.patch",
+    "opensovd-core-expose-client.patch",
     "opensovd-core-expose-tokio.patch",
     "rules-foreign-cc-pkgconfig-disable-compile-warnings.patch",
 ])
