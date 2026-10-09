@@ -29,36 +29,18 @@ on:
 
 jobs:
   linux-build:
-    name: Build & test on host for target platform x86_64-linux
+    name: Build with bl-x86_64-linux
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Setup Bazel Cache
-        uses: eclipse-score/cicd-actions/setup-bazel-cache@e2a2a587a759b681632040ec1e1294015a0405f5
+        uses: eclipse-score/cicd-actions/setup-bazel-cache@659dcbed63f6b7fbde88c7850125ea0a0a92f939
         with:
           unique-cache-name: ${{ github.workflow }}-${{ github.job }}
 
       - name: Bazel Build
         run: |
-          TARGETS=(//examples/... //tests/...)
-
-          # consider //score/... targets only in case such directory actually contains any Bazel packages.
-          if find score -type f \( -name BUILD -o -name BUILD.bazel \) | grep -q .; then
-            TARGETS+=(//score/...)
-          fi
-
-          bazel build --config=score_diag_x86_64_linux -- "${TARGETS[@]}"
-
-      - name: Bazel Test
-        run: |
-          TARGETS=(//examples/... //tests/...)
-
-          # consider //score/... targets only in case such directory actually contains any Bazel packages.
-          if find score -type f \( -name BUILD -o -name BUILD.bazel \) | grep -q .; then
-            TARGETS+=(//score/...)
-          fi
-
-          bazel test --config=score_diag_x86_64_linux -- "${TARGETS[@]}"
+          bazel build --config=bl-x86_64-linux -- //score/... //src/... //tests/...
