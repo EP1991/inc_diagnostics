@@ -13,6 +13,7 @@
 
 pub type KeyValueAttributes = ::common::KeyValueAttributes;
 pub type ReplyMessageEncoding = ::common::ReplyMessageEncoding;
+pub type JsonSchemaRequired = ::common::JsonSchemaRequired;
 pub type ReplyMessagePayload = ::common::ReplyMessagePayload;
 pub type RequestMessagePayload = ::common::RequestMessagePayload;
 pub type DiagnosticReply = ::common::DiagnosticReply;
