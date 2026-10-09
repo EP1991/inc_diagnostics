@@ -19,6 +19,7 @@ use opensovd_server::{Server, Topology};
 use sovd_adapter::{DataResourceRegistry, SovdDataProvider};
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tracing_subscriber::EnvFilter;
 
 const DEFAULT_ADDRESS: &str = "127.0.0.1:7690";
 
@@ -46,6 +47,10 @@ async fn topology(debounce: TimeBased) -> Result<Topology, Box<dyn std::error::E
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
+
     let address = address();
     let listener = TcpListener::bind(&address).await?;
     let topology = topology(TimeBased {

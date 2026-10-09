@@ -26,6 +26,7 @@ _DEPS = [
     "@opensovd_core//:opensovd-core",
     "@opensovd_core//:opensovd-server",
     "@opensovd_core//:tokio",
+    "@opensovd_core//:tracing-subscriber",
     "@score_crate_index//:serde_json",
 ]
 

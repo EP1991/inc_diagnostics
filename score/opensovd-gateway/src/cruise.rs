@@ -152,6 +152,18 @@ impl Sensor {
             ((100.0 + 5.0 * (t / 3.0).sin()) * 10.0).round() / 10.0
         })
     }
+
+    /// Refresh the sensor state: report the current fault condition, settle the
+    /// debounce, and update cruise_state accordingly. Called on every access.
+    fn refresh(&mut self, now: Instant) {
+        self.monitor.report(self.stuck_at.is_some(), now);
+        let stage = self.monitor.stage(now);
+        self.state = match (stage, self.state) {
+            (Stage::Failed, _) => CruiseState::Unavailable,
+            (Stage::Passed, CruiseState::Unavailable) => CruiseState::Standby,
+            (_, state) => state,
+        };
+    }
 }
 
 /// Shared state of cruise control diagnostics; each resource holds a handle to it.
@@ -173,7 +185,9 @@ impl CruiseDiag {
 
     fn with<T>(&self, f: impl FnOnce(&mut Sensor, Instant) -> T) -> diag_api::Result<T> {
         let mut sensor = self.0.lock().map_err(|_| diag_api::Error::mutex_poisoned())?;
-        Ok(f(&mut sensor, Instant::now()))
+        let now = Instant::now();
+        sensor.refresh(now);
+        Ok(f(&mut sensor, now))
     }
 
     /// Registers the four cruise control resources in `registry`.
@@ -255,16 +269,8 @@ struct FaultStatus(CruiseDiag);
 impl DataResource for FaultStatus {
     fn read(&self, _input: ReadValueArgs) -> ReadValueHandle {
         as_handle(self.0.with(|s, now| {
-            s.monitor.report(s.stuck_at.is_some(), now);
+            // refresh() already called in with(), so state is up to date
             let stage = s.monitor.stage(now);
-            // Update cruise state based on fault status
-            s.state = if stage == Stage::Failed {
-                CruiseState::Unavailable
-            } else if s.state == CruiseState::Unavailable && stage == Stage::Passed {
-                CruiseState::Standby
-            } else {
-                s.state
-            };
             json!({
                 "fault": "VehicleSpeedSensorStuck",
                 "status": stage.as_str(),

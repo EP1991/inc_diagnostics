@@ -15,7 +15,7 @@ use crate::registry::{DataResourceRegistry, Entry};
 use crate::{convert, handle};
 use async_trait::async_trait;
 use diag_api::sovd::data_resource::{ReadValueArgs, WriteValueArgs};
-use opensovd_core::{Data, DataError, DataFilter, DataProvider, Metadata};
+use opensovd_core::{Data, DataError, DataFilter, DataProvider, DataScope, Metadata};
 use serde_json::Value;
 
 type Result<T> = std::result::Result<T, DataError>;
@@ -45,10 +45,13 @@ impl From<DataResourceRegistry> for SovdDataProvider {
 }
 
 fn matches(meta: &Metadata, filter: &DataFilter) -> bool {
-    let category_ok = filter.categories.is_empty() || filter.categories.contains(&meta.category);
-    let group_ok = filter.groups.is_empty() || filter.groups.iter().any(|g| meta.groups.contains(g));
+    let scope_ok = match &filter.scope {
+        None => true,
+        Some(DataScope::Categories(categories)) => categories.contains(&meta.category),
+        Some(DataScope::Groups(groups)) => groups.iter().any(|g| meta.groups.contains(g)),
+    };
     let tag_ok = filter.tags.is_empty() || filter.tags.iter().any(|t| meta.tags.contains(t));
-    category_ok && group_ok && tag_ok
+    scope_ok && tag_ok
 }
 
 #[async_trait]
@@ -112,6 +115,7 @@ impl DataProvider for SovdDataProvider {
 mod tests {
     use super::*;
     use crate::registry::PayloadFormat;
+    use opensovd_core::DataScope;
     use diag_api::sovd::data_resource::{
         DataCategory, DataResourceMetadata, ReadValueHandle, ReadValueReply, WriteValueHandle,
     };
@@ -222,12 +226,12 @@ mod tests {
     async fn list_filters_by_category_and_group() {
         let (p, _) = provider();
         let by_cat = DataFilter {
-            categories: vec!["sysInfo".to_string()],
+            scope: Some(DataScope::Categories(vec!["sysInfo".to_string()])),
             ..DataFilter::default()
         };
         assert_eq!(p.list(by_cat).await.unwrap()[0].id, "broken");
         let by_group = DataFilter {
-            groups: vec!["hvac".to_string()],
+            scope: Some(DataScope::Groups(vec!["hvac".to_string()])),
             ..DataFilter::default()
         };
         assert_eq!(p.list(by_group).await.unwrap()[0].id, "cabin_temp");
