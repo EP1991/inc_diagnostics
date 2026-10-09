@@ -11,18 +11,46 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
-load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+
+_SRCS = [
+    "src/cruise.rs",
+    "src/main.rs",
+]
+
+# tokio comes from opensovd_core's crate index so its TcpListener matches the one
+# opensovd_server expects; the diag_api serde_json is renamed to diag_json.
+_DEPS = [
+    "//score/mw/diag/api",
+    "//score/mw/diag/sovd_adapter",
+    "@opensovd_core//:opensovd-core",
+    "@opensovd_core//:opensovd-server",
+    "@opensovd_core//:tokio",
+    "@score_crate_index//:serde_json",
+]
+
+_ALIASES = {
+    "@score_crate_index//:serde_json": "diag_json",
+}
 
 rust_binary(
     name = "opensovd-gateway",
-    srcs = ["src/main.rs"],
+    srcs = _SRCS,
+    aliases = _ALIASES,
+    crate_root = "src/main.rs",
     edition = "2021",
     visibility = ["//visibility:public"],
-    deps = [
-        "@opensovd_core//:opensovd-core",
-        "@opensovd_core//:opensovd-models",
-        "@opensovd_core//:opensovd-providers",
-        "@opensovd_core//:opensovd-server",
-        "@opensovd_core//:tokio",
+    deps = _DEPS,
+)
+
+rust_test(
+    name = "opensovd-gateway_test",
+    srcs = _SRCS,
+    aliases = _ALIASES,
+    crate_root = "src/main.rs",
+    edition = "2021",
+    deps = _DEPS + [
+        "@opensovd_core//:opensovd-client",
+        "@opensovd_core//:serde_json",
     ],
 )
