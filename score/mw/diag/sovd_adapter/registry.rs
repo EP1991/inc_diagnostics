@@ -60,6 +60,9 @@ impl std::error::Error for RegistrationError {}
 pub(crate) struct Entry {
     pub(crate) metadata: DataResourceMetadata,
     pub(crate) format: PayloadFormat,
+    /// Optional tags for filtering; `DataResourceMetadata` has no tags field,
+    /// so they are supplied at registration time.
+    pub(crate) tags: Vec<String>,
     pub(crate) resource: Mutex<Box<dyn DataResource + Send>>,
 }
 
@@ -87,7 +90,7 @@ impl DataResourceRegistry {
         metadata: DataResourceMetadata,
         resource: impl DataResource + Send + 'static,
     ) -> Result<(), RegistrationError> {
-        self.register_with_format(metadata, PayloadFormat::Json, resource)
+        self.register_full(metadata, PayloadFormat::Json, Vec::new(), resource)
     }
 
     /// Register a resource with an explicit payload format, e.g.
@@ -101,6 +104,36 @@ impl DataResourceRegistry {
         format: PayloadFormat,
         resource: impl DataResource + Send + 'static,
     ) -> Result<(), RegistrationError> {
+        self.register_full(metadata, format, Vec::new(), resource)
+    }
+
+    /// Register a resource with explicit format and tags.
+    ///
+    /// Tags enable filtering via the SOVD `?tags=` query parameter.
+    /// `DataResourceMetadata` has no tags field, so they are supplied here.
+    ///
+    /// # Errors
+    /// [`RegistrationError`] if the id is empty or already taken.
+    pub fn register_with_tags(
+        &mut self,
+        metadata: DataResourceMetadata,
+        tags: Vec<String>,
+        resource: impl DataResource + Send + 'static,
+    ) -> Result<(), RegistrationError> {
+        self.register_full(metadata, PayloadFormat::Json, tags, resource)
+    }
+
+    /// Register a resource with all options: format and tags.
+    ///
+    /// # Errors
+    /// [`RegistrationError`] if the id is empty or already taken.
+    pub fn register_full(
+        &mut self,
+        metadata: DataResourceMetadata,
+        format: PayloadFormat,
+        tags: Vec<String>,
+        resource: impl DataResource + Send + 'static,
+    ) -> Result<(), RegistrationError> {
         if metadata.id.is_empty() {
             return Err(RegistrationError::EmptyId);
         }
@@ -112,6 +145,7 @@ impl DataResourceRegistry {
             Entry {
                 metadata,
                 format,
+                tags,
                 resource: Mutex::new(Box::new(resource)),
             },
         );

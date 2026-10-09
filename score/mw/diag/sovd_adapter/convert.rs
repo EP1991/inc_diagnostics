@@ -24,7 +24,11 @@ use diag_api::{ErrorCode, JsonSchemaRequired, ReplyMessageEncoding, ReplyMessage
 use opensovd_core::{DataError, Metadata};
 use serde_json::Value;
 
-pub(crate) fn metadata(meta: &DataResourceMetadata) -> Metadata {
+/// Converts `DataResourceMetadata` to `opensovd_core::Metadata`.
+///
+/// Tags are passed separately because `DataResourceMetadata` has no tags field;
+/// they come from the registry's `Entry::tags`.
+pub(crate) fn metadata(meta: &DataResourceMetadata, tags: &[String]) -> Metadata {
     Metadata {
         id: meta.id.clone(),
         name: meta.name.clone(),
@@ -32,8 +36,8 @@ pub(crate) fn metadata(meta: &DataResourceMetadata) -> Metadata {
         category: meta.category.to_string(),
         translation_id: meta.translation_id.clone(),
         groups: meta.groups.clone().unwrap_or_default(),
-        // DataResourceMetadata has no tags.
-        tags: Vec::new(),
+        // Tags come from the registry entry, not from DataResourceMetadata.
+        tags: tags.to_vec(),
         // A diag_api resource only hands out its schema with a read reply.
         schema: None,
         is_readable: true,
@@ -89,18 +93,53 @@ pub(crate) fn request_payload(value: Value, format: PayloadFormat) -> Result<Req
     }
 }
 
+/// Maps a `diag_api::Error` to the appropriate `opensovd_core::DataError` variant.
+///
+/// SOVD error codes are mapped to their semantic equivalents so the gateway can
+/// return the correct HTTP status (e.g., 403 for `InsufficientAccessRights`).
 pub(crate) fn read_error(err: diag_api::Error) -> DataError {
-    DataError::Internal(match err.code {
-        ErrorCode::SOVD(generic) => format!("{}: {}", generic.sovd_error, generic.message_text),
-        ErrorCode::UDS(nrc) => format!("UDS negative response 0x{:02X}", u8::from(nrc)),
-    })
+    use diag_api::sovd::ErrorCode as SovdCode;
+
+    match err.code {
+        ErrorCode::SOVD(generic) => sovd_error_to_data_error(&generic),
+        ErrorCode::UDS(nrc) => {
+            // UDS NRCs don't have direct SOVD mappings; include the hex code.
+            DataError::Internal(format!(
+                "UDS negative response 0x{:02X}: {}",
+                u8::from(nrc),
+                nrc
+            ))
+        }
+    }
 }
 
+/// Maps a `DiagDataError` (from write operations) to `DataError`.
 pub(crate) fn write_error(err: DiagDataError) -> DataError {
-    DataError::Internal(match err.error {
-        Some(generic) => format!("{}: {}", generic.sovd_error, generic.message_text),
-        None => format!("write failed at '{}'", err.path),
-    })
+    match err.error {
+        Some(generic) => sovd_error_to_data_error(&generic),
+        None => DataError::Internal(format!("write failed at '{}'", err.path)),
+    }
+}
+
+/// Maps SOVD `GenericError` to the appropriate `DataError` variant.
+fn sovd_error_to_data_error(generic: &diag_api::sovd::GenericError) -> DataError {
+    use diag_api::sovd::ErrorCode as SovdCode;
+
+    match generic.sovd_error {
+        // Access/authorization errors → ReadOnly or specific message
+        SovdCode::InsufficientAccessRights => DataError::ReadOnly,
+        // Not found errors
+        SovdCode::ResourceNotFound => DataError::NotFound(generic.message_text.clone()),
+        // Validation/precondition errors → InvalidValue with context
+        SovdCode::IncompleteRequest
+        | SovdCode::InvalidValue
+        | SovdCode::PreconditionNotFulfilled
+        | SovdCode::ConditionsNotCorrect => {
+            DataError::InvalidValue(generic.message_text.clone())
+        }
+        // Everything else → Internal with full context
+        _ => DataError::Internal(format!("{}: {}", generic.sovd_error, generic.message_text)),
+    }
 }
 
 /// Joins the per-element errors of a read reply into one message.
@@ -147,18 +186,19 @@ mod tests {
             category: DataCategory::CurrentData,
             groups: Some(vec!["hvac".to_string()]),
         };
-        let m = metadata(&meta);
+        let tags = vec!["sensor".to_string(), "temperature".to_string()];
+        let m = metadata(&meta, &tags);
         assert_eq!(m.id, "cabin_temp");
         assert_eq!(m.name, "Cabin temperature");
         assert_eq!(m.category, "currentData");
         assert_eq!(m.translation_id.as_deref(), Some("t-1"));
         assert_eq!(m.groups, ["hvac"]);
-        assert!(m.tags.is_empty());
+        assert_eq!(m.tags, ["sensor", "temperature"]);
         assert!(m.is_readable && m.is_writable);
     }
 
     #[test]
-    fn metadata_read_only_and_no_groups() {
+    fn metadata_read_only_and_no_groups_no_tags() {
         let meta = DataResourceMetadata {
             id: "vin".to_string(),
             name: "VIN".to_string(),
@@ -167,9 +207,10 @@ mod tests {
             category: DataCategory::Custom("x-score-demo".to_string()),
             groups: None,
         };
-        let m = metadata(&meta);
+        let m = metadata(&meta, &[]);
         assert_eq!(m.category, "x-score-demo");
         assert!(m.groups.is_empty());
+        assert!(m.tags.is_empty());
         assert!(!m.is_writable);
     }
 
@@ -236,25 +277,60 @@ mod tests {
     }
 
     #[test]
-    fn read_error_formats_sovd_and_uds() {
-        let sovd = diag_api::Error::from_error(GenericError::from_code(
+    fn read_error_maps_sovd_codes_to_variants() {
+        // InsufficientAccessRights → ReadOnly
+        let access_err = diag_api::Error::from_error(GenericError::from_code(
+            SovdCode::InsufficientAccessRights,
+            "no permission".to_string(),
+        ));
+        assert!(matches!(read_error(access_err), DataError::ReadOnly));
+
+        // ResourceNotFound → NotFound
+        let not_found = diag_api::Error::from_error(GenericError::from_code(
+            SovdCode::ResourceNotFound,
+            "cabin_temp".to_string(),
+        ));
+        assert!(matches!(read_error(not_found), DataError::NotFound(id) if id == "cabin_temp"));
+
+        // IncompleteRequest → InvalidValue
+        let invalid = diag_api::Error::from_error(GenericError::from_code(
+            SovdCode::IncompleteRequest,
+            "missing field".to_string(),
+        ));
+        assert!(matches!(read_error(invalid), DataError::InvalidValue(m) if m == "missing field"));
+
+        // NotResponding → Internal (catch-all)
+        let internal = diag_api::Error::from_error(GenericError::from_code(
             SovdCode::NotResponding,
             "ECU silent".to_string(),
         ));
-        assert!(read_error(sovd).to_string().contains("ECU silent"));
+        assert!(matches!(&read_error(internal), DataError::Internal(m) if m.contains("ECU silent")));
+
+        // UDS NRC → Internal with hex code
         let uds = diag_api::Error::from_nrc(NegativeResponseCode::RequestOutOfRange);
-        assert!(read_error(uds).to_string().contains("0x31"));
+        assert!(matches!(&read_error(uds), DataError::Internal(m) if m.contains("0x31")));
     }
 
     #[test]
-    fn write_error_with_and_without_detail() {
-        let detailed = DiagDataError::from_error(GenericError::from_code(
+    fn write_error_maps_sovd_codes_to_variants() {
+        // IncompleteRequest → InvalidValue
+        let invalid = DiagDataError::from_error(GenericError::from_code(
             SovdCode::IncompleteRequest,
             "binary only".to_string(),
         ));
-        assert!(write_error(detailed).to_string().contains("binary only"));
-        assert!(write_error(DiagDataError::new("/value".to_string()))
-            .to_string()
-            .contains("/value"));
+        assert!(matches!(write_error(invalid), DataError::InvalidValue(m) if m == "binary only"));
+
+        // InsufficientAccessRights → ReadOnly
+        let access_err = DiagDataError::from_error(GenericError::from_code(
+            SovdCode::InsufficientAccessRights,
+            "read-only resource".to_string(),
+        ));
+        assert!(matches!(write_error(access_err), DataError::ReadOnly));
+
+        // No error detail → Internal with path
+        assert!(matches!(
+            &write_error(DiagDataError::new("/value".to_string())),
+            DataError::Internal(m) if m.contains("/value")
+        ));
     }
 }

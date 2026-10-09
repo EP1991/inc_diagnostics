@@ -60,7 +60,7 @@ impl DataProvider for SovdDataProvider {
         Ok(self
             .registry
             .entries()
-            .map(|e| convert::metadata(&e.metadata))
+            .map(|e| convert::metadata(&e.metadata, &e.tags))
             .filter(|m| matches(m, &filter))
             .collect())
     }
@@ -79,11 +79,11 @@ impl DataProvider for SovdDataProvider {
         let reply = handle::resolve_read(pending).await.map_err(convert::read_error)?;
 
         let (data, schema) = convert::reply_value(reply.data)?;
+        // opensovd_core::Data has no error list; any reply with errors is a failure.
+        // We cannot return partial success, so fail the entire read if any resource-level
+        // errors are present, regardless of whether data was also returned.
         if let Some(errors) = reply.errors.filter(|e| !e.is_empty()) {
-            // opensovd_core::Data has no error list; a reply with errors and no value is a failure.
-            if data.is_null() {
-                return Err(DataError::Internal(convert::reply_errors(&errors)));
-            }
+            return Err(DataError::Internal(convert::reply_errors(&errors)));
         }
         Ok(Data {
             data,
@@ -197,9 +197,11 @@ mod tests {
     fn provider() -> (SovdDataProvider, Arc<Mutex<diag_json::Value>>) {
         let cell = Arc::new(Mutex::new(diag_json::json!(21.5)));
         let mut registry = DataResourceRegistry::new();
+        // Register cabin_temp with tags for tag filtering tests
         registry
-            .register(
+            .register_with_tags(
                 meta("cabin_temp", DataCategory::CurrentData, false, &["hvac"]),
+                vec!["sensor".to_string(), "temperature".to_string()],
                 Cell(cell.clone()),
             )
             .unwrap();
@@ -223,7 +225,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_filters_by_category_and_group() {
+    async fn list_filters_by_category_group_and_tag() {
         let (p, _) = provider();
         let by_cat = DataFilter {
             scope: Some(DataScope::Categories(vec!["sysInfo".to_string()])),
@@ -235,11 +237,18 @@ mod tests {
             ..DataFilter::default()
         };
         assert_eq!(p.list(by_group).await.unwrap()[0].id, "cabin_temp");
-        let none = DataFilter {
-            tags: vec!["t".to_string()],
+        // Filter by tag should match cabin_temp which has "sensor" tag
+        let by_tag = DataFilter {
+            tags: vec!["sensor".to_string()],
             ..DataFilter::default()
         };
-        assert!(p.list(none).await.unwrap().is_empty());
+        assert_eq!(p.list(by_tag).await.unwrap()[0].id, "cabin_temp");
+        // Unknown tag should return empty
+        let unknown_tag = DataFilter {
+            tags: vec!["unknown".to_string()],
+            ..DataFilter::default()
+        };
+        assert!(p.list(unknown_tag).await.unwrap().is_empty());
     }
 
     #[tokio::test]
